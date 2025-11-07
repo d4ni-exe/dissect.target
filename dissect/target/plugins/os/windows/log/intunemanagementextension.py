@@ -10,44 +10,28 @@ from dissect.target.exceptions import UnsupportedPluginError
 
 if TYPE_CHECKING:
     from dissect.target import Target
-# ------------------------------------------------------------------------------
-# Logger setup
-# ------------------------------------------------------------------------------
+
 log = logging.getLogger(__name__)
 
-# ------------------------------------------------------------------------------
-# Record Descriptor
-# ------------------------------------------------------------------------------
-# Defines the structure of parsed IntuneManagementExtension log entries.
 IntuneManagementExtensionLogRecord = TargetRecordDescriptor(
     "IntuneManagementExtension/log",
     [
-        ("datetime", "timestamp"),   # Timestamp of the log entry
-        ("string", "component"),     # Log component name (e.g., IntuneManagementExtension)
-        ("string", "thread"),        # Thread ID or identifier
-        ("string", "type"),          # Log type (e.g., INFO, ERROR)
-        ("string", "message"),       # The actual log message
-        ("string", "file_origin"),   # Source log file name (useful if multiple)
+        ("datetime", "timestamp"),
+        ("string", "component"),
+        ("string", "thread"),
+        ("string", "type"),
+        ("string", "message"),
+        ("string", "file_origin"),
     ],
 )
 
-# ------------------------------------------------------------------------------
-# Regular Expression Pattern
-# ------------------------------------------------------------------------------
-# Matches Intune Management Extension log entries that follow this format:
-# <![LOG[<message>]LOG]!><time="HH:MM:SS.FFFFFF" date="MM-DD-YYYY"
-# component="..." context="" type="1" thread="1" file="">
 LOG_PATTERN = re.compile(
-    r'<!\[LOG\[(?P<message>.*?)\]LOG\]!>'                                                                    # Log message
-    r'<time="(?P<hms>\d{2}:\d{2}:\d{2})(?:\.(?P<fractional_seconds>\d+))?"\s+'                               # Time (with optional microseconds)
-    r'date="(?P<date>[\d-]+)"\s+component="(?P<component>[^"]+)"'                                            # Date and Component
-    r'\s+context="[^"]*"\s+type="(?P<type>\d+)"\s+thread="(?P<thread>\d+)"\s+file="(?P<file_origin>[^"]*)"', # Context, Type, Thread, File
+    r'<!\[LOG\[(?P<message>.*?)\]LOG\]!>'
+    r'<time="(?P<hms>\d{2}:\d{2}:\d{2})(?:\.(?P<fractional_seconds>\d+))?"\s+'
+    r'date="(?P<date>[\d-]+)"\s+component="(?P<component>[^"]+)"'
+    r'\s+context="[^"]*"\s+type="(?P<type>\d+)"\s+thread="(?P<thread>\d+)"\s+file="(?P<file_origin>[^"]*)"',
     re.DOTALL | re.IGNORECASE,
 )
-
-# ------------------------------------------------------------------------------
-# Plugin Definition
-# ------------------------------------------------------------------------------
 
 class IntuneManagementExtensionLogParserPlugin(Plugin):
     """Parse Microsoft Intune Management Extension logs (including rotated logs).
@@ -59,14 +43,7 @@ class IntuneManagementExtensionLogParserPlugin(Plugin):
     component name, and message content.
     """
 
-    __namespace__ = "intunemanagementextension"
-
-    # Default path to the AgentExecutor.log within the Intune Management Extension directory
-    LOG_DIR = r"sysvol/ProgramData/Microsoft/IntuneManagementExtension/Logs"
-
-    # --------------------------------------------------------------------------
-    # Compatibility Check
-    # --------------------------------------------------------------------------
+    LOG_DIR = "sysvol/ProgramData/Microsoft/IntuneManagementExtension/Logs"
 
     def check_compatible(self) -> None:
         """Verify that the Intune Management Extension logs exist in the target.
@@ -87,12 +64,8 @@ class IntuneManagementExtensionLogParserPlugin(Plugin):
         if not has_logs:
             raise UnsupportedPluginError("No Intune Management Extension logs found in target.")
 
-    # --------------------------------------------------------------------------
-    # Main Parser Function
-    # --------------------------------------------------------------------------
-
     @export(record=IntuneManagementExtensionLogRecord)
-    def logparser(self) -> Iterator[IntuneManagementExtensionLogRecord]:
+    def intunemanagementextension(self) -> Iterator[IntuneManagementExtensionLogRecord]:
         """Parse Intune Management Extension log files.
 
         Yields:
@@ -108,8 +81,7 @@ class IntuneManagementExtensionLogParserPlugin(Plugin):
             log.warning(f"No Intune Management Extension log files found under {self.LOG_DIR}")
             return
 
-        # Sort rotated logs by name (chronological order)
-        for log_path in sorted(log_files, key=lambda x: x.name):
+        for log_path in log_files:
             try:
                 with log_path.open("r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
@@ -121,19 +93,15 @@ class IntuneManagementExtensionLogParserPlugin(Plugin):
             for match in LOG_PATTERN.finditer(content):
                 match_count += 1
 
-                # Clean and normalize message text
                 msg = match.group("message").replace("\r", "").replace("\n", " ").strip()
 
-                # Combine date and time into a full timestamp
                 date_str = match.group("date")
                 hms_str = match.group("hms")
                 fractional_seconds_str = match.group("fractional_seconds")
 
-                # Normalize microseconds
                 micro_str = (fractional_seconds_str or "000000")[:6].ljust(6, "0")
                 time_str = f"{hms_str}.{micro_str}"
 
-                # Attempt multiple datetime formats
                 timestamp = None
                 for fmt in ("%m-%d-%Y %H:%M:%S.%f", "%d-%m-%Y %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S.%f"):
                     try:
@@ -144,11 +112,8 @@ class IntuneManagementExtensionLogParserPlugin(Plugin):
                 if not timestamp:
                     continue
 
-                # Map type codes to human-readable values
-                type_map = {"1": "INFO", "2": "ERROR", "3": "WARNING", "0": "UNKNOWN"}
-                log_type = type_map.get(match.group("type"), match.group("type"))
+                log_type = match.group("type")
 
-                # Yield parsed record
                 yield IntuneManagementExtensionLogRecord(
                     timestamp=timestamp.isoformat(timespec="microseconds"),
                     component=match.group("component"),
